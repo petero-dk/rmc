@@ -3,13 +3,14 @@
 import os
 import sys
 import io
+import json
 from pathlib import Path
 from contextlib import contextmanager
+from .exporters.svg import tree_to_svg
+from .exporters.json import tree_to_json
 import click
 from rmscene import read_tree, read_blocks, write_blocks, simple_text_document
-from .exporters.svg import tree_to_svg
-from .exporters.pdf import svg_to_pdf
-from .exporters.markdown import print_text
+
 
 import logging
 
@@ -56,12 +57,6 @@ def cli(verbose, from_, to, output, input):
         with open_output(to, output) as fout:
             for fn in input:
                 convert_rm(Path(fn), to, fout)
-    elif from_ == "markdown":
-        text = "".join(
-            Path(fn).read_text() for fn in input
-        )
-        with open_output(to, output) as fout:
-            convert_text(text, fout)
     else:
         raise click.UsageError("source format %s not implemented yet" % from_)
 
@@ -119,66 +114,75 @@ def tree_structure(item):
 def convert_rm(filename: Path, to, fout):
     with open(filename, "rb") as f:
         if to == "blocks":
-            pprint_blocks(f, fout)
+            json_blocks(f, fout)
         elif to == "blocks-data":
-            pprint_blocks(f, fout, data=False)
-        elif to == "tree":
-            # Experimental dumping of tree structure
-            pprint_tree(f, fout, data=True)
-        elif to == "tree-data":
-            # Experimental dumping of tree structure
-            pprint_tree(f, fout, data=False)
-        elif to == "markdown":
-            print_text(f, fout)
+            json_blocks(f, fout, data=False)
+        elif to == "json":
+            tree = read_tree(f)
+            tree_to_json(tree, fout)
         elif to == "svg":
             tree = read_tree(f)
             tree_to_svg(tree, fout)
-        elif to == "pdf":
-            buf = io.StringIO()
-            tree = read_tree(f)
-            tree_to_svg(tree, buf)
-            buf.seek(0)
-            svg_to_pdf(buf, fout)
+        elif to == "tree":
+            # Experimental dumping of tree structure
+            json_tree(f, fout, data=True)
+        elif to == "tree-data":
+            # Experimental dumping of tree structure
+            json_tree(f, fout, data=False)
         else:
             raise click.UsageError("Unknown format %s" % to)
 
 
-def pprint_blocks(f, fout, data=True) -> None:
-    import pprint
+def json_blocks(f, fout, data=True) -> None:
     depth = None if data else 1
     result = read_blocks(f)
-    for el in result:
-        print(file=fout)
-        pprint.pprint(el, depth=depth, stream=fout)
+    print("[", file=fout)
+    for el, notlast in lookahead(result):
+        json_string = json.dumps(el.__dict__, default=lambda o: getattr(o, '__dict__', None), indent=4)
+        print(json_string, file=fout)
+        if notlast:
+            print(",", file=fout)
+    print("]", file=fout)
 
 
-def pprint_tree(f, fout, data=True) -> None:
+def json_tree(f, fout, data=True) -> None:
     tree = read_tree(f)
 
-    import pprint
-    import re
-
-    def pprint_Line(self, object, stream, indent, allowance, context, level):
-        min_x = min(p.x for p in object.points)
-        min_y = min(p.y for p in object.points)
-        max_x = max(p.x for p in object.points)
-        max_y = max(p.y for p in object.points)
-        rep = re.sub(r"points=\[.*\]",
-                     f"points=[({min_x: 4.0f},{min_y: 4.0f})-({max_x: 4.0f},{max_y: 4.0f})]",
-                     repr(object))
-        stream.write(rep)
-
-    pprint.PrettyPrinter._dispatch[si.Line.__repr__] = pprint_Line
-
     depth = None if data else 1
-    pprint.pprint(tree_structure(tree.root), stream=fout)
-    pprint.pprint(tree_structure(tree.root_text), depth=depth, stream=fout)
+    tree_root = tree_structure(tree.root)
+    tree_root_text = tree_structure(tree.root_text)
+
+    tree_root_json = json.dumps(tree_root, default=lambda o: getattr(o, '__dict__', None), indent=4)
+    print("[", file=fout)
+    print(tree_root_json, file=fout)
+    print(",", file=fout)
+    tree_root_text_json = json.dumps(tree_root, default=lambda o: getattr(o, '__dict__', None), indent=4)
+    print(tree_root_text_json, file=fout)
+    print("]", file=fout)
 
 
 
 def convert_text(text, fout):
     write_blocks(fout, simple_text_document(text))
 
+def lookahead(iterable):
+    """Pass through all values from the given iterable, augmented by the
+    information if there are more values to come after the current one
+    (True), or if it is the last value (False).
+    """
+    # Get an iterator and pull the first value.
+    it = iter(iterable)
+    try:
+        last = next(it)
+    except StopIteration:
+        return
+    # Run the iterator to exhaustion (starting from the second value).
+    for val in it:
+        # Report the *previous* value (more to come).
+        yield last, True
+        last = val
+    # Report the last value.
+    yield last, False
 
 if __name__ == "__main__":
     cli()
