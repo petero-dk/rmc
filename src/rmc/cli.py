@@ -6,8 +6,7 @@ import io
 import json
 from pathlib import Path
 from contextlib import contextmanager
-from .exporters.svg import tree_to_svg
-from .exporters.json import tree_to_json
+from rmc.exporters import json as json_exporter
 import click
 from rmscene import read_tree, read_blocks, write_blocks, simple_text_document
 
@@ -57,6 +56,9 @@ def cli(verbose, from_, to, output, input):
         with open_output(to, output) as fout:
             for fn in input:
                 convert_rm(Path(fn), to, fout)
+            else:
+                convert_rm(None, to, fout)
+
     else:
         raise click.UsageError("source format %s not implemented yet" % from_)
 
@@ -112,17 +114,24 @@ def tree_structure(item):
 
 
 def convert_rm(filename: Path, to, fout):
-    with open(filename, "rb") as f:
+    if filename == None:
+        # Read from stdin
+        f = sys.stdin.buffer
+        # Print the content of stdin for debugging
+        stdin_content = f.read()
+        f = io.BytesIO(stdin_content)  # Wrap the content in a BytesIO object for further processing
+    
+    else:
+        f = open(filename, "rb")
+
+    with f:
         if to == "blocks":
             json_blocks(f, fout)
         elif to == "blocks-data":
             json_blocks(f, fout, data=False)
         elif to == "json":
             tree = read_tree(f)
-            tree_to_json(tree, fout)
-        elif to == "svg":
-            tree = read_tree(f)
-            tree_to_svg(tree, fout)
+            json_exporter.tree_to_json(tree, fout)
         elif to == "tree":
             # Experimental dumping of tree structure
             json_tree(f, fout, data=True)

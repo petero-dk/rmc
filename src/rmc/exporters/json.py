@@ -14,7 +14,7 @@ from rmscene import CrdtId, SceneTree, read_tree
 from rmscene import scene_items as si
 from rmscene.text import TextDocument
 
-from .writing_tools import Pen
+from rmc.exporters.writing_tools import Pen
 
 _logger = logging.getLogger(__name__)
 
@@ -104,6 +104,12 @@ def tree_to_json(tree: SceneTree, output, include_template: Path | None = None):
 
     r = {
         "page" : page,
+        "pageOrg": {
+            "width": x_max,
+            "height": y_max,
+            "x": x_min,
+            "y": y_min,
+        },
         "text" : text,
         "points" : points
     }
@@ -243,6 +249,10 @@ def draw_stroke(item: si.Line, output, anchor_x = None, anchor_y = None, flatten
             points.append({
                 "x": xx(xpos),
                 "y": yy(ypos),
+                "xorg": point.x,
+                "yorg": point.y,
+                "anchorx": anchor_x,
+                "anchory": anchor_y,
                 "color": segment_color,
                 "width": segment_width,
                 "opacity": segment_opacity,
@@ -275,6 +285,8 @@ def draw_text(text: si.Text, output):
             lines.append({
                 "x": xx(xpos),
                 "y": yy(ypos),
+                "xorg": xpos,
+                "yorg": ypos,
                 "text": str(p).strip(),
                 "class": cls,
             })
